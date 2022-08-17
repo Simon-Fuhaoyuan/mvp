@@ -25,7 +25,8 @@ class VisionTransformer(timm.models.vision_transformer.VisionTransformer):
     def __init__(self, **kwargs):
         super(VisionTransformer, self).__init__(**kwargs)
         # remove the classifier
-        del self.pre_logits, self.head
+        # del self.pre_logits, self.head
+        del self.head
 
     def extract_feat(self, x):
         B = x.shape[0]
@@ -75,6 +76,7 @@ def vit_s16(pretrained, **kwargs):
     # load from checkpoint
     if pretrained != "none":
         load_checkpoint(pretrained, model)
+        print("\n=========================================")
         print("Loaded encoder from: {}".format(pretrained))
     hidden_dim = 384
     return model, hidden_dim

@@ -226,10 +226,10 @@ class PixelActorCritic(nn.Module):
                 critic_layers.append(activation)
         self.critic = nn.Sequential(*critic_layers)
 
-        print(self.obs_enc)
-        print(self.state_enc)
-        print(self.actor)
-        print(self.critic)
+        # print(self.obs_enc)
+        # print(self.state_enc)
+        # print(self.actor)
+        # print(self.critic)
 
         # Action noise
         self.log_std = nn.Parameter(np.log(initial_std) * torch.ones(*actions_shape))

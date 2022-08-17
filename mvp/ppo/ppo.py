@@ -11,6 +11,7 @@ from gym.spaces import Space
 import statistics
 from collections import deque
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -51,8 +52,8 @@ class PPO:
 
         if not isinstance(vec_env.observation_space, Space):
             raise TypeError("vec_env.observation_space must be a gym Space")
-        if not isinstance(vec_env.state_space, Space):
-            raise TypeError("vec_env.state_space must be a gym Space")
+        # if not isinstance(vec_env.state_space, Space):
+        #     raise TypeError("vec_env.state_space must be a gym Space")
         if not isinstance(vec_env.action_space, Space):
             raise TypeError("vec_env.action_space must be a gym Space")
 
@@ -60,7 +61,7 @@ class PPO:
 
         self.observation_space = vec_env.observation_space
         self.action_space = vec_env.action_space
-        self.state_space = vec_env.state_space
+        self.state_space = vec_env.observation_space
 
         self.device = device
         self.num_gpus = num_gpus
@@ -91,7 +92,7 @@ class PPO:
             self.actor_critic.log_std = self.actor_critic.module.log_std
 
         self.storage = RolloutStorage(
-            self.vec_env.num_envs, num_transitions_per_env, self.observation_space.shape,
+            1, num_transitions_per_env, self.observation_space.shape,
             self.state_space.shape, self.action_space.shape, self.device, sampler
         )
         self.optimizer = optim.Adam(self.actor_critic.parameters(), lr=learning_rate)
@@ -145,14 +146,42 @@ class PPO:
     def save(self, path):
         torch.save(self.actor_critic.state_dict(), path)
 
+    def env_render(self):
+        img = self.vec_env.render(
+            width=224,
+            height=224
+        )
+        img = np.reshape(img, newshape=(1, 3, 224, 224)) / 255
+        cu_img = torch.from_numpy(img).type(torch.FloatTensor).cuda()
+
+        return cu_img
+
+    def env_reset(self):
+        states = self.vec_env.reset()
+        states = np.reshape(states, newshape=(1, -1))
+        cu_states = torch.from_numpy(states).type(torch.FloatTensor).cuda()
+
+        return cu_states
+
+    def env_step(self, actions: torch.FloatTensor):
+        action = actions.cpu().numpy().flatten()
+        states, rew, done, info = self.vec_env.step(action)
+
+        cu_states = torch.from_numpy(states.reshape(1, -1)).type(torch.FloatTensor).cuda()
+        cu_rew = torch.from_numpy(np.array([rew])).type(torch.FloatTensor).cuda()
+        cu_done = torch.from_numpy(np.array([done])).type(torch.FloatTensor).cuda()
+        cu_info = {'is_success': torch.from_numpy(np.array([info['is_success']])).type(torch.FloatTensor).cuda()}
+
+        return cu_states, cu_rew, cu_done, cu_info
+
     def run(self, num_learning_iterations, log_interval=1):
-        current_obs = self.vec_env.reset()
-        current_states = self.vec_env.get_state()
+        current_states = self.env_reset()
+        current_obs = self.env_render()
 
         if self.is_testing:
             maxlen = 200
-            cur_reward_sum = torch.zeros(self.vec_env.num_envs, dtype=torch.float, device=self.device)
-            cur_episode_length = torch.zeros(self.vec_env.num_envs, dtype=torch.float, device=self.device)
+            cur_reward_sum = torch.zeros(1, dtype=torch.float, device=self.device)
+            cur_episode_length = torch.zeros(1, dtype=torch.float, device=self.device)
 
             reward_sum = []
             episode_length = []
@@ -161,13 +190,13 @@ class PPO:
             while len(reward_sum) <= maxlen:
                 with torch.no_grad():
                     if self.apply_reset:
-                        current_obs = self.vec_env.reset()
-                        current_states = self.vec_env.get_state()
+                        current_states = self.env_reset()
+                        current_obs = self.env_render()
                     # Compute the action
                     actions = self.actor_critic.act_inference(current_obs, current_states)
                     # Step the vec_environment
-                    next_obs, rews, dones, infos = self.vec_env.step(actions)
-                    next_states = self.vec_env.get_state()
+                    next_states, rews, dones, infos = self.env_step(actions)
+                    next_obs = self.env_render()
                     current_obs.copy_(next_obs)
                     current_states.copy_(next_states)
 
@@ -177,7 +206,7 @@ class PPO:
                     new_ids = (dones > 0).nonzero(as_tuple=False)
                     reward_sum.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
                     episode_length.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
-                    successes.extend(infos["successes"][new_ids][:, 0].cpu().numpy().tolist())
+                    successes.extend(infos["is_success"][new_ids][:, 0].cpu().numpy().tolist())
                     cur_reward_sum[new_ids] = 0
                     cur_episode_length[new_ids] = 0
 
@@ -193,8 +222,8 @@ class PPO:
             rewbuffer = deque(maxlen=maxlen)
             lenbuffer = deque(maxlen=maxlen)
             successbuffer = deque(maxlen=maxlen)
-            cur_reward_sum = torch.zeros(self.vec_env.num_envs, dtype=torch.float, device=self.device)
-            cur_episode_length = torch.zeros(self.vec_env.num_envs, dtype=torch.float, device=self.device)
+            cur_reward_sum = torch.zeros(1, dtype=torch.float, device=self.device)
+            cur_episode_length = torch.zeros(1, dtype=torch.float, device=self.device)
 
             reward_sum = []
             episode_length = []
@@ -202,18 +231,20 @@ class PPO:
 
             for it in range(self.current_learning_iteration, num_learning_iterations):
                 start = time.time()
+                current_states = self.env_reset()
+                current_obs = self.env_render()
 
                 # Rollout
                 for _ in range(self.num_transitions_per_env):
                     if self.apply_reset:
-                        current_obs = self.vec_env.reset()
-                        current_states = self.vec_env.get_state()
+                        current_states = self.env_reset()
+                        current_obs = self.env_render()
                     # Compute the action
                     actions, actions_log_prob, values, mu, sigma, current_obs_feats = \
                         self.actor_critic.act(current_obs, current_states)
                     # Step the vec_environment
-                    next_obs, rews, dones, infos = self.vec_env.step(actions)
-                    next_states = self.vec_env.get_state()
+                    next_states, rews, dones, infos = self.env_step(actions)
+                    next_obs = self.env_render()
                     # Record the transition
                     obs_in = current_obs_feats if current_obs_feats is not None else current_obs
                     self.storage.add_transitions(
@@ -229,7 +260,7 @@ class PPO:
                         new_ids = (dones > 0).nonzero(as_tuple=False)
                         reward_sum.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
                         episode_length.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
-                        successes.extend(infos["successes"][new_ids][:, 0].cpu().numpy().tolist())
+                        successes.extend(infos["is_success"][new_ids][:, 0].cpu().numpy().tolist())
                         cur_reward_sum[new_ids] = 0
                         cur_episode_length[new_ids] = 0
 
@@ -277,7 +308,7 @@ class PPO:
         mean_trajectory_length, mean_reward, rewbuffer_mean, lenbuffer_mean, successbuffer_mean, width=80, pad=35
     ):
 
-        num_steps_per_iter = self.num_transitions_per_env * self.vec_env.num_envs * self.num_gpus
+        num_steps_per_iter = self.num_transitions_per_env * self.num_gpus
         self.tot_timesteps += num_steps_per_iter
 
         self.tot_time += collection_time + learn_time
@@ -345,10 +376,7 @@ class PPO:
 
             for indices in batch:
                 obs_batch = self.storage.observations.view(-1, *self.storage.observations.size()[2:])[indices]
-                if self.vec_env.num_states > 0:
-                    states_batch = self.storage.states.view(-1, *self.storage.states.size()[2:])[indices]
-                else:
-                    states_batch = None
+                states_batch = self.storage.states.view(-1, *self.storage.states.size()[2:])[indices]
                 actions_batch = self.storage.actions.view(-1, self.storage.actions.size(-1))[indices]
                 target_values_batch = self.storage.values.view(-1, 1)[indices]
                 returns_batch = self.storage.returns.view(-1, 1)[indices]

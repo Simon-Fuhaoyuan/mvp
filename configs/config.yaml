@@ -1,14 +1,14 @@
 
 physics_engine: "physx"
 pipeline: "gpu"
-sim_device: "cuda:0"
+sim_device: "cpu"
 rl_device: "cuda:0"
 graphics_device_id: 0
 num_gpus: 1
 
 test: False
 resume: 0
-logdir: "/tmp/debug"
+logdir: "./log/"
 cptdir: ""
 headless: True
 

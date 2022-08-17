@@ -5,10 +5,11 @@
 import hydra
 import omegaconf
 import os
+import datetime
 
 from mvp.utils.hydra_utils import omegaconf_to_dict, print_dict, dump_cfg
 from mvp.utils.hydra_utils import set_np_formatting, set_seed
-from mvp.utils.hydra_utils import parse_sim_params, parse_task
+from mvp.utils.hydra_utils import parse_task
 from mvp.utils.hydra_utils import process_ppo
 
 
@@ -20,7 +21,13 @@ def train(cfg: omegaconf.DictConfig):
 
     # Parse the config
     cfg_dict = omegaconf_to_dict(cfg)
-    print_dict(cfg_dict)
+    # print_dict(cfg_dict)
+
+    # Create a unique log dir for task
+    cfg.logdir = os.path.join(
+        cfg.logdir,
+        cfg.task.name + '_' + datetime.datetime.now().strftime("%m%d-%H-%M-%S")
+    )
 
     # Create logdir and dump cfg
     if not cfg.test:
@@ -32,8 +39,8 @@ def train(cfg: omegaconf.DictConfig):
     set_seed(cfg.train.seed, cfg.train.torch_deterministic)
 
     # Construct task
-    sim_params = parse_sim_params(cfg, cfg_dict)
-    env = parse_task(cfg, cfg_dict, sim_params)
+    # sim_params = parse_sim_params(cfg, cfg_dict)
+    env = parse_task(cfg, cfg_dict)
 
     # Perform training
     ppo = process_ppo(env, cfg, cfg_dict, cfg.logdir, cfg.cptdir)

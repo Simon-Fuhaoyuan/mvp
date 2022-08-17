@@ -72,7 +72,7 @@ class VecTaskCPU(VecTask):
 
     def step(self, actions):
         actions = actions.cpu().numpy()
-        self.task.render(self.sync_frame_time)
+        self.task.env_render(self.sync_frame_time)
 
         obs, rewards, resets, extras = self.task.step(np.clip(actions, -self.clip_actions, self.clip_actions))
 
@@ -99,7 +99,7 @@ class VecTaskGPU(VecTask):
         self.resets_tensor = gymtorch.wrap_tensor(self.task.resets_tensor, counts=(self.task.num_envs,))
 
     def step(self, actions):
-        self.task.render(False)
+        self.task.env_render(False)
         actions_clipped = torch.clamp(actions, -self.clip_actions, self.clip_actions)
         actions_tensor = gymtorch.unwrap_tensor(actions_clipped)
 

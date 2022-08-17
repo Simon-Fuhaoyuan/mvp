@@ -27,5 +27,6 @@ build/
 
 # Other
 logs/
+log/
 scratch*
 pretrained/
