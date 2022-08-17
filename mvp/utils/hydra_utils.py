@@ -212,7 +212,9 @@ def process_ppo(env, cfg, cfg_dict, logdir, cptdir):
         is_testing=is_testing,
         print_log=learn_cfg["print_log"],
         apply_reset=False,
-        num_gpus=cfg.num_gpus
+        num_gpus=cfg.num_gpus,
+        camera_pos=cfg.task.env.cam.loc_p,
+        camera_rot=cfg.task.env.cam.loc_r
     )
 
     # TODO: improve checkpointing and avoid overwriting logs

@@ -47,7 +47,9 @@ class PPO:
         is_testing=False,
         print_log=True,
         apply_reset=False,
-        num_gpus=1
+        num_gpus=1,
+        camera_pos=None,
+        camera_rot=None,
     ):
 
         if not isinstance(vec_env.observation_space, Space):
@@ -131,6 +133,8 @@ class PPO:
                 self.writer = None
 
         self.apply_reset = apply_reset
+        self.camera_pos = camera_pos
+        self.camera_rot = camera_rot
 
     def test(self, path):
         state_dict = torch.load(path)
@@ -149,7 +153,9 @@ class PPO:
     def env_render(self):
         img = self.vec_env.render(
             width=224,
-            height=224
+            height=224,
+            target_position=self.camera_pos,
+            target_euler_angles=self.camera_rot
         )
         img = np.reshape(img, newshape=(1, 3, 224, 224)) / 255
         cu_img = torch.from_numpy(img).type(torch.FloatTensor).cuda()

@@ -1,0 +1,16 @@
+name: BimanualLiftingClutterH5-v1
+
+env:
+  episodeLength: 100
+
+  obs_type: pixels
+  im_size: 224
+
+  cam:
+    crop: center
+    w: 298
+    h: 224
+    fov: 120
+    ss: 2
+    loc_p: [-0.00300000003, 1.22300005, 0.575999975]
+    loc_r: [52.6229324, 0.155510843, 359.703583]

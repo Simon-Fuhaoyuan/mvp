@@ -1,0 +1,16 @@
+name: BimanualLiftingStructuredH5-v1
+
+env:
+  episodeLength: 100
+
+  obs_type: pixels
+  im_size: 224
+
+  cam:
+    crop: center
+    w: 298
+    h: 224
+    fov: 120
+    ss: 2
+    loc_p: [-0.00200000009,0.984000027, 0.834999979]
+    loc_r: [69.618515, 0.430470228, -4.13686166e-06]
