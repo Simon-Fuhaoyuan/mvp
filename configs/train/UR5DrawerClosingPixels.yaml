@@ -16,21 +16,21 @@ policy:
   vf_hid_sizes: [256, 128, 64]
 
 learn:
-  agent_name: franka_ppo
+  agent_name: kinova_ppo
   test: False
   resume: 0
   save_interval: 50
   print_log: True
 
-  max_iterations: 2000
+  max_iterations: 1000
 
   cliprange: 0.1
   ent_coef: 0
-  nsteps: 32
+  nsteps: 50
   noptepochs: 10
   nminibatches: 4
   max_grad_norm: 1
-  optim_stepsize: 0.0005  # same for supervised vit baseline
+  optim_stepsize: 0.001  # 0.0005 for supervised vit baseline
   schedule: cos
   gamma: 0.99
   lam: 0.95

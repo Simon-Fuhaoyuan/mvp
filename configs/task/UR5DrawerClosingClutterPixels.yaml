@@ -1,0 +1,16 @@
+name: DrawerClosingUR5Cluttered-v1
+
+env:
+  episodeLength: 50
+
+  obs_type: pixels
+  im_size: 224
+
+  cam:
+    crop: center
+    w: 298
+    h: 224
+    fov: 120
+    ss: 2
+    loc_p: [-0.240999997, 1.11399996, -0.228]
+    loc_r: [56.1518784, 264.375458, 355.183624]

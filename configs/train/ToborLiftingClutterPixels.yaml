@@ -22,7 +22,7 @@ learn:
   save_interval: 50
   print_log: True
 
-  max_iterations: 10000
+  max_iterations: 1000
 
   cliprange: 0.1
   ent_coef: 0

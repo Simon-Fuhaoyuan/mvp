@@ -93,8 +93,10 @@ class PPO:
             self.actor_critic.act = self.actor_critic.module.act
             self.actor_critic.log_std = self.actor_critic.module.log_std
 
+        self.num_envs = 8000 // num_transitions_per_env
+
         self.storage = RolloutStorage(
-            1, num_transitions_per_env, self.observation_space.shape,
+            self.num_envs, num_transitions_per_env, self.observation_space.shape,
             self.state_space.shape, self.action_space.shape, self.device, sampler
         )
         self.optimizer = optim.Adam(self.actor_critic.parameters(), lr=learning_rate)
@@ -186,8 +188,8 @@ class PPO:
 
         if self.is_testing:
             maxlen = 200
-            cur_reward_sum = torch.zeros(1, dtype=torch.float, device=self.device)
-            cur_episode_length = torch.zeros(1, dtype=torch.float, device=self.device)
+            cur_reward_sum = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+            cur_episode_length = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
 
             reward_sum = []
             episode_length = []
@@ -228,8 +230,8 @@ class PPO:
             rewbuffer = deque(maxlen=maxlen)
             lenbuffer = deque(maxlen=maxlen)
             successbuffer = deque(maxlen=maxlen)
-            cur_reward_sum = torch.zeros(1, dtype=torch.float, device=self.device)
-            cur_episode_length = torch.zeros(1, dtype=torch.float, device=self.device)
+            cur_reward_sum = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+            cur_episode_length = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
 
             reward_sum = []
             episode_length = []
@@ -237,27 +239,70 @@ class PPO:
 
             for it in range(self.current_learning_iteration, num_learning_iterations):
                 start = time.time()
-                current_states = self.env_reset()
-                current_obs = self.env_render()
 
-                # Rollout
-                for _ in range(self.num_transitions_per_env):
-                    if self.apply_reset:
-                        current_states = self.env_reset()
-                        current_obs = self.env_render()
-                    # Compute the action
-                    actions, actions_log_prob, values, mu, sigma, current_obs_feats = \
-                        self.actor_critic.act(current_obs, current_states)
-                    # Step the vec_environment
-                    next_states, rews, dones, infos = self.env_step(actions)
-                    next_obs = self.env_render()
+                all_current_obs_feats = None
+                all_actions = torch.zeros(self.num_transitions_per_env, self.num_envs, *self.action_space.shape, device=self.device)
+                all_rews = torch.zeros(self.num_transitions_per_env, self.num_envs, device=self.device)
+                all_dones = torch.zeros(self.num_transitions_per_env, self.num_envs, device=self.device)
+                all_infos = torch.zeros(self.num_transitions_per_env, self.num_envs, device=self.device)
+                all_action_log_prob = torch.zeros(self.num_transitions_per_env, self.num_envs, 1, device=self.device)
+                all_values = torch.zeros(self.num_transitions_per_env, self.num_envs, 1, device=self.device)
+                all_mu = torch.zeros(self.num_transitions_per_env, self.num_envs, *self.action_space.shape, device=self.device)
+                all_sigma = torch.zeros(self.num_transitions_per_env, self.num_envs, *self.action_space.shape, device=self.device)
+                all_current_states = torch.zeros(self.num_transitions_per_env, self.num_envs, *self.state_space.shape, device=self.device)
+                all_current_obs = torch.zeros(self.num_envs, 3, 224, 224, device=self.device)
+
+                # Rollout and simulate the parallel
+                for env_id in range(self.num_envs):
+                    for i in range(self.num_transitions_per_env):
+                        # Compute the action
+                        actions, actions_log_prob, values, mu, sigma, current_obs_feats = \
+                            self.actor_critic.act(current_obs, current_states)
+                        # Step the vec_environment
+                        next_states, rews, dones, infos = self.env_step(actions)
+                        next_obs = self.env_render()
+
+                        if dones[0] > 0:
+                            next_states = self.env_reset()
+                            next_obs = self.env_render()
+
+                        if all_current_obs_feats is None:
+                            all_current_obs_feats = \
+                                [torch.zeros(self.num_envs, *current_obs_feats.shape[1:], device=self.device)] * self.num_transitions_per_env
+
+                        all_current_obs_feats[i][env_id].copy_(current_obs_feats.reshape(*current_obs_feats.shape[1:]))
+                        all_actions[i][env_id].copy_(actions.reshape(*actions.shape[1:]))
+                        all_rews[i][env_id].copy_(rews[0])
+                        all_dones[i][env_id].copy_(dones[0])
+                        all_infos[i][env_id].copy_(infos['is_success'][0])
+                        all_action_log_prob[i][env_id].copy_(actions_log_prob[0])
+                        all_values[i][env_id].copy_(values[0])
+                        all_mu[i][env_id].copy_(mu.reshape(*mu.shape[1:]))
+                        all_sigma[i][env_id].copy_(sigma.reshape(*sigma.shape[1:]))
+                        all_current_states[i][env_id].copy_(current_states.reshape(*current_states.shape[1:]))
+
+                        current_obs.copy_(next_obs)
+                        current_states.copy_(next_states)
+
+                    all_current_obs[env_id].copy_(current_obs.reshape(*current_obs.shape[1:]))
+
+                for j in range(self.num_transitions_per_env):
+                    current_obs_feats = all_current_obs_feats[j]
+                    actions = all_actions[j]
+                    rews = all_rews[j]
+                    dones = all_dones[j]
+                    infos = all_infos[j]
+                    values = all_values[j]
+                    actions_log_prob = all_action_log_prob[j]
+                    mu = all_mu[j]
+                    sigma = all_sigma[j]
+                    states = all_current_states[j]
+
                     # Record the transition
-                    obs_in = current_obs_feats if current_obs_feats is not None else current_obs
+                    obs_in = current_obs_feats
                     self.storage.add_transitions(
-                        obs_in, current_states, actions, rews, dones, values, actions_log_prob, mu, sigma
+                        obs_in, states, actions, rews, dones, values, actions_log_prob, mu, sigma
                     )
-                    current_obs.copy_(next_obs)
-                    current_states.copy_(next_states)
 
                     if self.print_log:
                         cur_reward_sum[:] += rews
@@ -266,7 +311,8 @@ class PPO:
                         new_ids = (dones > 0).nonzero(as_tuple=False)
                         reward_sum.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
                         episode_length.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
-                        successes.extend(infos["is_success"][new_ids][:, 0].cpu().numpy().tolist())
+                        # print(episode_length)
+                        successes.extend(infos[new_ids][:, 0].cpu().numpy().tolist())
                         cur_reward_sum[new_ids] = 0
                         cur_episode_length[new_ids] = 0
 
@@ -275,7 +321,7 @@ class PPO:
                     lenbuffer.extend(episode_length)
                     successbuffer.extend(successes)
 
-                _, _, last_values, _, _, _ = self.actor_critic.act(current_obs, current_states)
+                _, _, last_values, _, _, _ = self.actor_critic.act(all_current_obs, all_current_states[-1])
                 stop = time.time()
                 collection_time = stop - start
 
@@ -314,7 +360,7 @@ class PPO:
         mean_trajectory_length, mean_reward, rewbuffer_mean, lenbuffer_mean, successbuffer_mean, width=80, pad=35
     ):
 
-        num_steps_per_iter = self.num_transitions_per_env * self.num_gpus
+        num_steps_per_iter = self.num_transitions_per_env * self.num_gpus * self.num_envs
         self.tot_timesteps += num_steps_per_iter
 
         self.tot_time += collection_time + learn_time
