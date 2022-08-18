@@ -173,6 +173,7 @@ class PPO:
 
     def env_step(self, actions: torch.FloatTensor):
         action = actions.cpu().numpy().flatten()
+        action = np.clip(action, -1, 1)
         states, rew, done, info = self.vec_env.step(action)
 
         cu_states = torch.from_numpy(states.reshape(1, -1)).type(torch.FloatTensor).cuda()
